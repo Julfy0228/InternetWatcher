@@ -6,6 +6,10 @@
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
+    <NeutralLanguage>ru-RU</NeutralLanguage>
+	<PublishSingleFile>true</PublishSingleFile>
+	<SelfContained>false</SelfContained>
+	<AssemblyName>IW</AssemblyName>
   </PropertyGroup>
 
 </Project>

@@ -107,6 +107,8 @@ public class TrayAppContext : ApplicationContext
     private List<UrlEntry> _urls;
     private MonitorForm? _monitorForm;
 
+    private bool _exiting;
+
     public TrayAppContext()
     {
         _config = ConfigManager.Load();
@@ -151,20 +153,30 @@ public class TrayAppContext : ApplicationContext
 
     private async Task TickAsync()
     {
-        var entries = _urls.ToList();
-        var tasks = entries.Select(x => CheckInternet(x.Url)).ToArray();
-        var results = await Task.WhenAll(tasks);
+        if (_exiting) return;
 
-        UpdateStatusMenu(entries, results);
-        UpdateIcon(results);
+        try
+        {
+            var entries = _urls.ToList();
+            var tasks = entries.Select(x => CheckInternet(x.Url)).ToArray();
+            var results = await Task.WhenAll(tasks);
 
-        double avg = results.Where(r => r.ok)
-                             .Select(r => (double)r.ping)
-                             .DefaultIfEmpty(double.NaN)
-                             .Average();
-        double? avgPing = double.IsNaN(avg) ? (double?)null : avg;
+            if (_exiting) return;
 
-        _monitorForm?.UpdateData(entries, results, avgPing);
+            UpdateStatusMenu(entries, results);
+            UpdateIcon(results);
+
+            double avg = results.Where(r => r.ok)
+                                .Select(r => (double)r.ping)
+                                .DefaultIfEmpty(double.NaN)
+                                .Average();
+            double? avgPing = double.IsNaN(avg) ? null : avg;
+
+            if (!_exiting)
+                _monitorForm?.UpdateData(entries, results, avgPing);
+        }
+        catch (ObjectDisposedException) { }
+        catch (TaskCanceledException) { }
     }
 
     private void UpdateStatusMenu(List<UrlEntry> entries, (bool ok, int code, long ping)[] results)
@@ -301,6 +313,7 @@ public class TrayAppContext : ApplicationContext
             _monitorForm = new MonitorForm(_config, _urls, OnUrlsChanged);
             _monitorForm.FormClosing += (_, e) =>
             {
+                if (_exiting) return;
                 e.Cancel = true;
                 SaveWindowState();
                 _monitorForm!.Hide();
@@ -345,14 +358,23 @@ public class TrayAppContext : ApplicationContext
 
     private void Exit()
     {
-        if (_monitorForm != null && !_monitorForm.IsDisposed)
-            SaveWindowState();
+        _exiting = true;
 
         _timer.Stop();
+        _timer.Dispose();
+
+        if (_monitorForm != null && !_monitorForm.IsDisposed)
+        {
+            SaveWindowState();
+            _monitorForm.Dispose();
+            _monitorForm = null;
+        }
+
         _notifyIcon.Visible = false;
         _notifyIcon.Dispose();
         _httpClient.Dispose();
-        Application.Exit();
+
+        ExitThread();
     }
 }
 
@@ -470,7 +492,7 @@ public class MonitorForm : Form
     {
         var hintLabel = new Label
         {
-            Text = "Список серверов для проверки (ожидается ответ HTTP 204):",
+            Text = "Список серверов для проверки",
             Location = new Point(10, 8),
             Size = new Size(500, 18),
             Anchor = AnchorStyles.Top | AnchorStyles.Left
